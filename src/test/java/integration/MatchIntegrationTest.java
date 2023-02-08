@@ -2,6 +2,7 @@ package integration;
 
 import app.foot.FootApi;
 import app.foot.controller.rest.*;
+import app.foot.controller.validator.GoalValidator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -34,20 +36,40 @@ class MatchIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
     StringBuilder exceptionBuilder = new StringBuilder();
-    private final ObjectMapper objectMapper = new ObjectMapper()
-            .findAndRegisterModules();  //Allow 'java.time.Instant' mapping
+    @MockBean
+    GoalValidator validator;
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private List<Match> convertFromHttpResponseToList(MockHttpServletResponse response)
+            throws JsonProcessingException, UnsupportedEncodingException {
+        CollectionType playerListType = objectMapper.getTypeFactory()
+                .constructCollectionType(List.class, Match.class);
+        return objectMapper.readValue(
+                response.getContentAsString(),
+                playerListType);
+    }
+    private Match convertFromHttpResponse(MockHttpServletResponse response)
+            throws JsonProcessingException, UnsupportedEncodingException {
 
-    @Test
-    void read_match_by_id_ok() throws Exception {
-        MockHttpServletResponse response = mockMvc.perform(get("/matches/2"))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse();
-        Match actual = objectMapper.readValue(
-                response.getContentAsString(), Match.class);
-
-        assertEquals(HttpStatus.OK.value(), response.getStatus());
-        assertEquals(expectedMatch2(), actual);
+        return objectMapper.readValue(
+                response.getContentAsString(),
+                Match.class);
+    }
+    private static Match match1(Match match){
+        return Match.builder()
+                .id(1)
+                .teamA(TeamMatch.builder()
+                        .team(match.getTeamA().getTeam())
+                        .score(match.getTeamA().getScore())
+                        .scorers(match.getTeamA().getScorers())
+                        .build())
+                .teamB(TeamMatch.builder()
+                        .team(match.getTeamB().getTeam())
+                        .score(match.getTeamB().getScore())
+                        .scorers(match.getTeamB().getScorers())
+                        .build())
+                .datetime(match.getDatetime())
+                .stadium(match.getStadium())
+                .build();
     }
     private static Match matchNotFound(){
         return Match.builder()
@@ -58,21 +80,6 @@ class MatchIntegrationTest {
                         .build())
                 .build();
     }
-    @Test
-    void read_matches_ok() throws Exception {
-        MockHttpServletResponse response = mockMvc.perform(get("/matches"))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse();
-        List<Match> actual = convertFromHttpResponse(response);
-
-        assertEquals(3, actual.size());
-        assertTrue(actual.contains(expectedMatch2()));
-        //TODO: add these checks and its values
-        assertTrue(actual.contains(expectedMatch1()));
-        //assertTrue(actual.contains(expectedMatch3()));
-    }
-
     private static Match expectedMatch2() {
         return Match.builder()
                 .id(2)
@@ -82,12 +89,12 @@ class MatchIntegrationTest {
                 .datetime(Instant.parse("2023-01-01T14:00:00Z"))
                 .build();
     }
-    private static Match expectedMatch1() {
+    private static Match expectedMatching() {
         return Match.builder()
-                .id(2)
-                .teamA(teamMatchA())
+                .id(3)
+                .teamA(teamMatchWithGuardianGoaling())
                 .teamB(teamMatchB())
-                .stadium("S2")
+                .stadium("S3")
                 .datetime(Instant.parse("2023-01-01T14:00:00Z"))
                 .build();
     }
@@ -112,6 +119,24 @@ class MatchIntegrationTest {
                         PlayerScorer.builder()
                                 .player(player6())
                                 .scoreTime(80)
+                                .isOG(true)
+                                .build()))
+                .build();
+    }
+    private static TeamMatch teamMatchWithGuardianGoaling() {
+        return TeamMatch.builder()
+                .team(team2())
+                .score(2)
+                .scorers(List.of(PlayerScorer.builder()
+                                .player(Player.builder()
+                                        .isGuardian(true)
+                                        .build())
+                                .scoreTime(70)
+                                .isOG(false)
+                                .build(),
+                        PlayerScorer.builder()
+                                .player(player6())
+                                .scoreTime(100)
                                 .isOG(true)
                                 .build()))
                 .build();
@@ -148,18 +173,75 @@ class MatchIntegrationTest {
                 .name("E2")
                 .build();
     }
-    private  static PlayerScorer playerScorer(){
+    PlayerScorer playerScorer(){
         return PlayerScorer.builder()
-                .isOG(false)
                 .scoreTime(30)
                 .player(Player.builder()
                         .id(1)
-                        .isGuardian(false)
-                        .name("j1")
                         .teamName("E1")
+                        .name("J1")
+                        .isGuardian(false)
                         .build())
+                .isOG(false)
                 .build();
     }
+    private static PlayerScorer playerScoringInLess0(){
+        return PlayerScorer.builder()
+                .scoreTime(-100)
+                .player(Player.builder()
+                        .id(7)
+                        .isGuardian(true)
+                        .build())
+                .isOG(false)
+                .build();
+    }
+    @Test
+    void get_match_by_id_ok() throws Exception {
+        MockHttpServletResponse response = mockMvc
+                .perform(get("/matches/"+1))
+                .andReturn()
+                .getResponse();
+        Match actual = convertFromHttpResponse(response);
+        assertEquals(HttpStatus.OK.value(), response.getStatus());
+        assertEquals(match1(actual) ,actual);
+    }
+    @Test
+    void read_matches_ok() throws Exception {
+        MockHttpServletResponse response = mockMvc.perform(get("/matches"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse();
+        List<Match> actual = convertFromHttpResponseToList(response);
+        log.info(String.valueOf(actual.get(0)));
+        log.info(actual.get(1).toString());
+        assertEquals(3, actual.size());
+        assertTrue(actual.contains(expectedMatch2()));
+        // TODO: add these checks and its values
+        assertTrue(actual.contains(expectedMatch1(actual.get(0))));
+        assertTrue(actual.contains(expectedMatch3(actual.get(2))));
+
+    }
+
+    private Match expectedMatch3(Match match) {
+        return Match.builder()
+                .id(match.getId())
+                .teamA(match.getTeamA())
+                .teamB(match.getTeamB())
+                .stadium(match.getStadium())
+                .datetime(match.getDatetime())
+                .build();
+    }
+
+    private Match expectedMatch1(Match match) {
+        return Match.builder()
+                .id(1)
+                .teamA(match.getTeamA())
+                .teamB(match.getTeamB())
+                .stadium(match.getStadium())
+                .datetime(match.getDatetime())
+                .build();
+    }
+
     @Test
     void get_match_by_id_ko() throws Exception {
         exceptionBuilder.append("Match#").append(matchNotFound().getId()).append(" not found.");
@@ -171,44 +253,30 @@ class MatchIntegrationTest {
         assertEquals(exceptionBuilder.toString() , error.getRootCause().getMessage());
     }
 
-    private List<Match> convertFromHttpResponse(MockHttpServletResponse response)
-            throws JsonProcessingException, UnsupportedEncodingException {
-        CollectionType playerListType = objectMapper.getTypeFactory()
-                .constructCollectionType(List.class, Match.class);
-        return objectMapper.readValue(
-                response.getContentAsString(),
-                playerListType);
-    }
-    private Match convertFromHttpResponseToMatch(MockHttpServletResponse response)
-            throws JsonProcessingException, UnsupportedEncodingException {
-
-        return objectMapper.readValue(
-                response.getContentAsString(),
-                Match.class);
-    }
     @Test
-    void add_goals_ok_id_3() throws Exception {
-        MockHttpServletResponse response =
-                mockMvc.perform(post("/matches/"+3+"/goals")
-                                .content(objectMapper.writeValueAsString(List.of(playerScorer())))
-                                .contentType("APPLICATION/JSON")
-                                .accept(MediaType.APPLICATION_JSON))
-                        .andReturn().getResponse();
-        assertEquals(HttpStatus.OK.value(),response.getStatus());
-    assertEquals(0, convertFromHttpResponseToMatch(response).getTeamA().getScore());
-}
-        @Test
-    void add_goals_ko_id_3() throws Exception {
-                mockMvc.perform(post("/matches/"+3+"/goals")
-                        .content(List.of(playerScorer()).toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(result -> {
-                    result.getResponse();
-                    assertTrue(true);
-                }).andReturn().getResponse();
+    void post_match_adding_goal_ok() throws Exception {
+        MockHttpServletResponse response = mockMvc
+                .perform(post("/matches/"+3+"/goals")
+                        .content(objectMapper.writeValueAsString(List.of(playerScorer())))
+                        .contentType("application/json")
+                        .accept("application/json"))
+                .andReturn()
+                .getResponse();
 
+        assertEquals(HttpStatus.OK.value(), response.getStatus());
+        assertEquals(54 , convertFromHttpResponse(response).getTeamA().getScore());
     }
 
+    @Test
+    void post_match_adding_goal_ko() {
+        exceptionBuilder.append("Match#").append(expectedMatching().getId()).append(" not found.");
+        ServletException error = assertThrows(ServletException.class , () -> mockMvc
+                .perform(post("/matches/"+3+"/goals")
+                        .content(objectMapper.writeValueAsString(List.of(playerScoringInLess0())))
+                        .contentType("application/json")
+                        .accept("application/json"))
+                .andReturn()
+                .getResponse());
+        assertEquals(exceptionBuilder.toString() , error.getRootCause().getMessage());
+    }
 }
