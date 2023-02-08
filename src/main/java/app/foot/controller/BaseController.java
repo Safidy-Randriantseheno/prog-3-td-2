@@ -11,6 +11,6 @@ public class BaseController {
 
     @ExceptionHandler({BadRequestException.class})
     public void handleException() {
-        log.info("A bad request exception was handled");
+//        log.info("A bad request exception was handled");
     }
 }
