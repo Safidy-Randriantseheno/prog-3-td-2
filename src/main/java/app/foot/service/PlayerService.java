@@ -2,6 +2,7 @@ package app.foot.service;
 
 import app.foot.model.Player;
 import app.foot.repository.PlayerRepository;
+import app.foot.repository.entity.PlayerEntity;
 import app.foot.repository.mapper.PlayerMapper;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,9 @@ public class PlayerService {
         return repository.findAll().stream()
                 .map(mapper::toDomain)
                 .collect(Collectors.toUnmodifiableList());
+    }
+    public List<PlayerEntity> getAllPlayer(){
+        return repository.findAll();
     }
 
     public List<Player> createPlayers(List<Player> toCreate) {
